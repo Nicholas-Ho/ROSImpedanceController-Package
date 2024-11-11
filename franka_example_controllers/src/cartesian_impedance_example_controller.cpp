@@ -11,6 +11,7 @@
 #include <ros/ros.h>
 
 #include <franka_example_controllers/pseudo_inversion.h>
+#include <franka_example_controllers/JointPositions.h>
 
 namespace franka_example_controllers {
 
@@ -30,6 +31,7 @@ bool CartesianImpedanceExampleController::init(hardware_interface::RobotHW* robo
   
   // add a publisher 
   pub_current_pose_ = node_handle.advertise<geometry_msgs::PoseStamped>("robot_current_pose",50);
+  pub_joint_positions = node_handle.advertise<franka_example_controllers::JointPositions>("joint_positions",100);
   //-------------------modified------------------------------//
 
 
@@ -224,6 +226,13 @@ void CartesianImpedanceExampleController::update(const ros::Time& /*time*/,
   pose_msg.pose.orientation.z = orientation.z();
   pose_msg.pose.orientation.w = orientation.w();
   pub_current_pose_.publish(pose_msg);
+
+  franka_example_controllers::JointPositions joint_data_msg;
+  double* q_data = robot_state.q.data();
+  for (int i=0; i<7; i++) {
+    joint_data_msg.positions[i] = *q_data++;
+  }
+  pub_joint_positions.publish(joint_data_msg);
   //----------------------added---------------------------------//
 }
 

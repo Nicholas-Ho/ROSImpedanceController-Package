@@ -36,6 +36,7 @@ list_insert_in_workspace_order(catkin_INCLUDE_DIRS ${Franka_INCLUDE_DIRS} ${catk
 
 add_message_files(FILES
   JointTorqueComparison.msg
+  JointPositions.msg
 )
 
 generate_messages()

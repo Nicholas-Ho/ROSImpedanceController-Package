@@ -70,6 +70,7 @@ class CartesianImpedanceExampleController : public controller_interface::MultiIn
 
   //----------------------added-------------------//
   ros::Publisher pub_current_pose_;
+  ros::Publisher pub_joint_positions;
   //----------------------added-------------------//
 };
 
