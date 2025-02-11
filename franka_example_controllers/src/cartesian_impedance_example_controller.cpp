@@ -228,9 +228,9 @@ void CartesianImpedanceExampleController::update(const ros::Time& /*time*/,
   pub_current_pose_.publish(pose_msg);
 
   franka_example_controllers::JointPositions joint_data_msg;
-  double* q_data = robot_state.q.data();
+  std::array<double, 7> q_data = robot_state.q;
   for (int i=0; i<7; i++) {
-    joint_data_msg.positions[i] = *q_data++;
+    joint_data_msg.positions[i] = q_data[i];
   }
   pub_joint_positions.publish(joint_data_msg);
   //----------------------added---------------------------------//
