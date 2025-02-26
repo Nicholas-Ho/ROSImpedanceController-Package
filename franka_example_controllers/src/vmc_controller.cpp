@@ -30,7 +30,7 @@ bool VMCController::init(hardware_interface::RobotHW* robot_hw,
 
   // -----NICHOLAS_PROJECT-----
   // Publish current end-effector position and joint positions
-  pub_current_pose_ = node_handle.advertise<geometry_msgs::PoseStamped>("robot_current_pose",50);
+  pub_current_pose_ = node_handle.advertise<geometry_msgs::PoseStamped>("/robot_current_pose",50);
   pub_joint_positions = node_handle.advertise<franka_example_controllers::JointPositions>("joint_positions",100);
   // -----NICHOLAS_PROJECT-----
 
@@ -166,9 +166,9 @@ void VMCController::update(const ros::Time& /*time*/,
   // Eigen::Map<Eigen::Matrix<double, 7, 1>> dq(robot_state.dq.data());
   Eigen::Map<Eigen::Matrix<double, 7, 1>> tau_J_d(  // NOLINT (readability-identifier-naming)
       robot_state.tau_J_d.data());
-  // Eigen::Affine3d transform(Eigen::Matrix4d::Map(robot_state.O_T_EE.data()));
-  // Eigen::Vector3d position(transform.translation());
-  // Eigen::Quaterniond orientation(transform.rotation());
+  Eigen::Affine3d transform(Eigen::Matrix4d::Map(robot_state.O_T_EE.data()));
+  Eigen::Vector3d position(transform.translation());
+  Eigen::Quaterniond orientation(transform.rotation());
 
   // compute error to desired pose
   // position error

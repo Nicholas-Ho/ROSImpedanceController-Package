@@ -81,6 +81,11 @@ class VMCController : public controller_interface::MultiInterfaceController<
   // Equilibrium pose subscriber
   ros::Subscriber joints_subscriber;
   void TorquesFromJulia(const std_msgs::Float64MultiArrayConstPtr& msg);
+
+  //----------------------added-------------------//
+  ros::Publisher pub_current_pose_;
+  ros::Publisher pub_joint_positions;
+  //----------------------added-------------------//
 };
 
 }  // namespace franka_example_controllers
