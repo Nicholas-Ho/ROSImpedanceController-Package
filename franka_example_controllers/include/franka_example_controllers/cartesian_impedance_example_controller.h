@@ -67,6 +67,17 @@ class CartesianImpedanceExampleController : public controller_interface::MultiIn
   ros::Subscriber sub_equilibrium_pose_;
   void equilibriumPoseCallback(const geometry_msgs::PoseStampedConstPtr& msg);
 
+  // Panda robot joint limits (from specifications) converted to radians
+  Eigen::Matrix<double, 7, 1> lower_joint_limits = (Eigen::Matrix<double, 7, 1>() << -2.897247, -1.762783, -2.897247, -3.071780, -2.897247, -0.0174532, -2.897247).finished();
+  Eigen::Matrix<double, 7, 1> upper_joint_limits = (Eigen::Matrix<double, 7, 1>() << 2.897246, 1.762782, 2.897246, -0.069813, 2.897246, 3.752457, 2.897246).finished();
+
+  // Force functions
+  Eigen::VectorXd jointLimitForceFunction(
+    Eigen::Matrix<double, 7, 1> q,
+    Eigen::Matrix<double, 7, 1> lower_limits,
+    Eigen::Matrix<double, 7, 1> upper_limits,
+    double k,
+    double buffer);
 
   //----------------------added-------------------//
   ros::Publisher pub_current_pose_;

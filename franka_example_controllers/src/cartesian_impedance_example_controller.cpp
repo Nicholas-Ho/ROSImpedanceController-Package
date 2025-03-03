@@ -20,14 +20,9 @@ bool CartesianImpedanceExampleController::init(hardware_interface::RobotHW* robo
   std::vector<double> cartesian_stiffness_vector;
   std::vector<double> cartesian_damping_vector;
 
-  //-------------------modified------------------------------//
   sub_equilibrium_pose_ = node_handle.subscribe(
       "equilibrium_pose", 20, &CartesianImpedanceExampleController::equilibriumPoseCallback, this,
       ros::TransportHints().reliable().tcpNoDelay());
-
-  // sub_equilibrium_pose_ = node_handle.subscribe(
-  //     "equilibrium_pose_new", 20, &CartesianImpedanceExampleController::equilibriumPoseCallback, this,
-  //     ros::TransportHints().reliable().tcpNoDelay());
   
   // add a publisher 
   pub_current_pose_ = node_handle.advertise<geometry_msgs::PoseStamped>("robot_current_pose",50);
@@ -183,7 +178,9 @@ void CartesianImpedanceExampleController::update(const ros::Time& /*time*/,
 
   // Cartesian PD control with damping ratio = 1
   tau_task << jacobian.transpose() *
-                  (-cartesian_stiffness_ * error - cartesian_damping_ * (jacobian * dq));
+                  (-cartesian_stiffness_ * error - cartesian_damping_ * (jacobian * dq)) +
+              jointLimitForceFunction(q, lower_joint_limits, upper_joint_limits, 10, 0.4);
+
   // nullspace PD control with damping ratio = 1
   tau_nullspace << (Eigen::MatrixXd::Identity(7, 7) -
                     jacobian.transpose() * jacobian_transpose_pinv) *
@@ -246,6 +243,28 @@ Eigen::Matrix<double, 7, 1> CartesianImpedanceExampleController::saturateTorqueR
         tau_J_d[i] + std::max(std::min(difference, delta_tau_max_), -delta_tau_max_);
   }
   return tau_d_saturated;
+}
+
+Eigen::VectorXd CartesianImpedanceExampleController::jointLimitForceFunction(
+    Eigen::Matrix<double, 7, 1> q,
+    Eigen::Matrix<double, 7, 1> lower_limits,
+    Eigen::Matrix<double, 7, 1> upper_limits,
+    double k,
+    double buffer) {
+
+  // Zero between offset, linear with gradient otherwise
+  static auto force_func = [] (double x, double gradient, double lower_offset, double upper_offset) {
+    if (x < lower_offset) return gradient * (x - lower_offset);
+    if (x > upper_offset) return gradient * (x - upper_offset);
+    return 0.0;
+  };
+  
+  Eigen::VectorXd force(7);
+  for (int i=0; i<7; i++) {
+    force[i] = force_func(q[i], -k, lower_limits[i]+buffer, upper_limits[i]-buffer);
+  }
+
+  return force;
 }
 
 void CartesianImpedanceExampleController::complianceParamCallback(
