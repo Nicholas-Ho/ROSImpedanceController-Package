@@ -19,6 +19,7 @@
 #include <franka_example_controllers/compliance_paramConfig.h>
 #include <franka_hw/franka_model_interface.h>
 #include <franka_hw/franka_state_interface.h>
+#include <franka_example_controllers/TargetPose.h>
 
 namespace franka_example_controllers {
 
@@ -56,16 +57,16 @@ class CartesianImpedanceExampleController : public controller_interface::MultiIn
   Eigen::Vector3d position_d_target_;
   Eigen::Quaterniond orientation_d_target_;
 
-  // Dynamic reconfigure
-  std::unique_ptr<dynamic_reconfigure::Server<franka_example_controllers::compliance_paramConfig>>
-      dynamic_server_compliance_param_;
-  ros::NodeHandle dynamic_reconfigure_compliance_param_node_;
-  void complianceParamCallback(franka_example_controllers::compliance_paramConfig& config,
-                               uint32_t level);
+//   // Dynamic reconfigure
+//   std::unique_ptr<dynamic_reconfigure::Server<franka_example_controllers::compliance_paramConfig>>
+//       dynamic_server_compliance_param_;
+//   ros::NodeHandle dynamic_reconfigure_compliance_param_node_;
+//   void complianceParamCallback(franka_example_controllers::compliance_paramConfig& config,
+//                                uint32_t level);
 
   // Equilibrium pose subscriber
   ros::Subscriber sub_equilibrium_pose_;
-  void equilibriumPoseCallback(const geometry_msgs::PoseStampedConstPtr& msg);
+  void equilibriumPoseCallback(const franka_example_controllers::TargetPose::ConstPtr& msg);
 
   // Panda robot joint limits (from specifications) converted to radians
   Eigen::Matrix<double, 7, 1> lower_joint_limits = (Eigen::Matrix<double, 7, 1>() << -2.897247, -1.762783, -2.897247, -3.071780, -2.897247, -0.0174532, -2.897247).finished();

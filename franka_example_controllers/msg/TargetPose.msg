@@ -1,0 +1,3 @@
+geometry_msgs/Pose pose
+float64 cartesian_stiffness
+float64 rotational_stiffness

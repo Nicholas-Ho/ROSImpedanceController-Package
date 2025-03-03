@@ -21,11 +21,11 @@ bool CartesianImpedanceExampleController::init(hardware_interface::RobotHW* robo
   std::vector<double> cartesian_damping_vector;
 
   sub_equilibrium_pose_ = node_handle.subscribe(
-      "equilibrium_pose", 20, &CartesianImpedanceExampleController::equilibriumPoseCallback, this,
+      "/target_data", 20, &CartesianImpedanceExampleController::equilibriumPoseCallback, this,
       ros::TransportHints().reliable().tcpNoDelay());
   
   // add a publisher 
-  pub_current_pose_ = node_handle.advertise<geometry_msgs::PoseStamped>("robot_current_pose",50);
+  pub_current_pose_ = node_handle.advertise<geometry_msgs::PoseStamped>("/robot_current_pose",50);
   pub_joint_positions = node_handle.advertise<franka_example_controllers::JointPositions>("joint_positions",100);
   //-------------------modified------------------------------//
 
@@ -91,15 +91,15 @@ bool CartesianImpedanceExampleController::init(hardware_interface::RobotHW* robo
     }
   }
 
-  dynamic_reconfigure_compliance_param_node_ =
-      ros::NodeHandle(node_handle.getNamespace() + "/dynamic_reconfigure_compliance_param_node");
+  // dynamic_reconfigure_compliance_param_node_ =
+  //     ros::NodeHandle(node_handle.getNamespace() + "/dynamic_reconfigure_compliance_param_node");
 
-  dynamic_server_compliance_param_ = std::make_unique<
-      dynamic_reconfigure::Server<franka_example_controllers::compliance_paramConfig>>(
+  // dynamic_server_compliance_param_ = std::make_unique<
+  //     dynamic_reconfigure::Server<franka_example_controllers::compliance_paramConfig>>(
 
-      dynamic_reconfigure_compliance_param_node_);
-  dynamic_server_compliance_param_->setCallback(
-      boost::bind(&CartesianImpedanceExampleController::complianceParamCallback, this, _1, _2));
+  //     dynamic_reconfigure_compliance_param_node_);
+  // dynamic_server_compliance_param_->setCallback(
+  //     boost::bind(&CartesianImpedanceExampleController::complianceParamCallback, this, _1, _2));
 
   position_d_.setZero();
   orientation_d_.coeffs() << 0.0, 0.0, 0.0, 1.0;
@@ -267,34 +267,51 @@ Eigen::VectorXd CartesianImpedanceExampleController::jointLimitForceFunction(
   return force;
 }
 
-void CartesianImpedanceExampleController::complianceParamCallback(
-    franka_example_controllers::compliance_paramConfig& config,
-    uint32_t /*level*/) {
+// void CartesianImpedanceExampleController::complianceParamCallback(
+//     franka_example_controllers::compliance_paramConfig& config,
+//     uint32_t /*level*/) {
+//   cartesian_stiffness_target_.setIdentity();
+//   cartesian_stiffness_target_.topLeftCorner(3, 3)
+//       << config.translational_stiffness * Eigen::Matrix3d::Identity();
+//   cartesian_stiffness_target_.bottomRightCorner(3, 3)
+//       << config.rotational_stiffness * Eigen::Matrix3d::Identity();
+//   cartesian_damping_target_.setIdentity();
+//   // Damping ratio = 1
+//   cartesian_damping_target_.topLeftCorner(3, 3)
+//       << 2.0 * sqrt(config.translational_stiffness) * Eigen::Matrix3d::Identity();
+//   cartesian_damping_target_.bottomRightCorner(3, 3)
+//       << 2.0 * sqrt(config.rotational_stiffness) * Eigen::Matrix3d::Identity();
+//   nullspace_stiffness_target_ = config.nullspace_stiffness;
+// }
+
+void CartesianImpedanceExampleController::equilibriumPoseCallback(
+    const franka_example_controllers::TargetPose::ConstPtr& msg) {
+  // Change target
+  {
+    std::lock_guard<std::mutex> position_d_target_mutex_lock(
+        position_and_orientation_d_target_mutex_);
+    position_d_target_ << msg->pose.position.x, msg->pose.position.y, msg->pose.position.z;
+    Eigen::Quaterniond last_orientation_d_target(orientation_d_target_);
+    orientation_d_target_.coeffs() << msg->pose.orientation.x, msg->pose.orientation.y,
+        msg->pose.orientation.z, msg->pose.orientation.w;
+    if (last_orientation_d_target.coeffs().dot(orientation_d_target_.coeffs()) < 0.0) {
+      orientation_d_target_.coeffs() << -orientation_d_target_.coeffs();
+    }
+  }
+
+  // Change parameters
   cartesian_stiffness_target_.setIdentity();
   cartesian_stiffness_target_.topLeftCorner(3, 3)
-      << config.translational_stiffness * Eigen::Matrix3d::Identity();
+      << msg->cartesian_stiffness * Eigen::Matrix3d::Identity();
   cartesian_stiffness_target_.bottomRightCorner(3, 3)
-      << config.rotational_stiffness * Eigen::Matrix3d::Identity();
+      << msg->rotational_stiffness * Eigen::Matrix3d::Identity();
   cartesian_damping_target_.setIdentity();
   // Damping ratio = 1
   cartesian_damping_target_.topLeftCorner(3, 3)
-      << 2.0 * sqrt(config.translational_stiffness) * Eigen::Matrix3d::Identity();
+      << 2.0 * sqrt(msg->cartesian_stiffness) * Eigen::Matrix3d::Identity();
   cartesian_damping_target_.bottomRightCorner(3, 3)
-      << 2.0 * sqrt(config.rotational_stiffness) * Eigen::Matrix3d::Identity();
-  nullspace_stiffness_target_ = config.nullspace_stiffness;
-}
-
-void CartesianImpedanceExampleController::equilibriumPoseCallback(
-    const geometry_msgs::PoseStampedConstPtr& msg) {
-  std::lock_guard<std::mutex> position_d_target_mutex_lock(
-      position_and_orientation_d_target_mutex_);
-  position_d_target_ << msg->pose.position.x, msg->pose.position.y, msg->pose.position.z;
-  Eigen::Quaterniond last_orientation_d_target(orientation_d_target_);
-  orientation_d_target_.coeffs() << msg->pose.orientation.x, msg->pose.orientation.y,
-      msg->pose.orientation.z, msg->pose.orientation.w;
-  if (last_orientation_d_target.coeffs().dot(orientation_d_target_.coeffs()) < 0.0) {
-    orientation_d_target_.coeffs() << -orientation_d_target_.coeffs();
-  }
+      << 2.0 * sqrt(msg->rotational_stiffness) * Eigen::Matrix3d::Identity();
+  nullspace_stiffness_target_ = 0.5;
 }
 
 }  // namespace franka_example_controllers
