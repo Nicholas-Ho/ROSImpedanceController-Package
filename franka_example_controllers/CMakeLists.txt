@@ -38,6 +38,8 @@ add_message_files(FILES
   JointTorqueComparison.msg
   JointPositions.msg
   TargetPose.msg
+  RepulsiveField.msg
+  SafetyRepulsiveFields.msg
 )
 
 generate_messages(
