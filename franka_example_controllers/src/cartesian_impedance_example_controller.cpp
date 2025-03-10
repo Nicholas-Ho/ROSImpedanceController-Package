@@ -191,10 +191,10 @@ void CartesianImpedanceExampleController::update(const ros::Time& /*time*/,
   // Cartesian PD control with damping ratio = 1
   tau_task << jacobian.transpose() *
                   (-cartesian_stiffness_ * error - cartesian_damping_ * (jacobian * dq)) +
-              jointLimitForceFunction(q, lower_joint_limits, upper_joint_limits, 10, 0.4);  // Joint limit protections
-              // jacobian.transpose() * safety_fields[0].calculateCartesianForces(position) +  // Safety repulsive fields (TODO: Fix)
-              // jacobian.transpose() * safety_fields[1].calculateCartesianForces(position) +
-              // jacobian.transpose() * safety_fields[2].calculateCartesianForces(position);
+              jointLimitForceFunction(q, lower_joint_limits, upper_joint_limits, 10, 0.4) +  // Joint limit protections
+              jacobian.transpose() * safety_fields[0].calculateCartesianForces(position) +  // Safety repulsive fields
+              jacobian.transpose() * safety_fields[1].calculateCartesianForces(position) +
+              jacobian.transpose() * safety_fields[2].calculateCartesianForces(position);
 
   // nullspace PD control with damping ratio = 1
   tau_nullspace << (Eigen::MatrixXd::Identity(7, 7) -
@@ -296,14 +296,12 @@ void RepulsiveFieldInfo::setParameters(double x, double y, double z, double s, d
 }
 
 void RepulsiveFieldInfo::updateInternals(double filter_param) {
-  centre << filter_param * centre_target[0] + (1.0 - filter_param) * centre[0],
-    filter_param * centre_target[1] + (1.0 - filter_param) * centre[1],
-    filter_param * centre_target[2] + (1.0 - filter_param) * centre[2];
+  centre = filter_param * centre_target + (1.0 - filter_param) * centre;
   strength = filter_param * strength_target + (1.0 - filter_param) * strength;
   active_radius = filter_param * active_radius_target + (1.0 - filter_param) * active_radius;
 }
 
-Eigen::Vector3d RepulsiveFieldInfo::calculateCartesianForces(Eigen::Vector3d position) {
+Eigen::VectorXd RepulsiveFieldInfo::calculateCartesianForces(Eigen::Vector3d position) {
   // Zero beyond active radius, linear with negative gradient otherwise
   static auto force_func = [] (double dist, double gradient, double radius) {
     if (dist < 0) dist = -dist;  // Ensure absolute
@@ -312,9 +310,13 @@ Eigen::Vector3d RepulsiveFieldInfo::calculateCartesianForces(Eigen::Vector3d pos
   };
   
   Eigen::Vector3d diff = position - centre;
-  Eigen::Vector3d force = diff.normalized() * force_func(diff.norm(), strength, active_radius);
+  Eigen::Vector3d cartesian_force = diff.normalized() * force_func(diff.norm(), strength, active_radius);
 
-  return force;
+  Eigen::VectorXd force_vec(6);
+  // { cartesian_forces(3), rotation_forces(3) }
+  force_vec << cartesian_force, 0, 0, 0;
+
+  return force_vec;
 }
 
 void CartesianImpedanceExampleController::equilibriumPoseCallback(

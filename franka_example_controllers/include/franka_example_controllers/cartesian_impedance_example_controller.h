@@ -39,7 +39,7 @@ class RepulsiveFieldInfo {
   public:
     void setParameters(double x, double y, double z, double s, double r);
     void updateInternals(double filter_param);
-    Eigen::Vector3d calculateCartesianForces(Eigen::Vector3d position);
+    Eigen::VectorXd calculateCartesianForces(Eigen::Vector3d position);
 };
 
 class CartesianImpedanceExampleController : public controller_interface::MultiInterfaceController<
