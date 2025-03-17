@@ -77,6 +77,9 @@ class CartesianImpedanceExampleController : public controller_interface::MultiIn
   Eigen::Vector3d position_d_target_;
   Eigen::Quaterniond orientation_d_target_;
 
+  // Safety limits for Tanh cartesian spring
+  const double max_cartesian_spring_force{10};
+
   // For safety repulsive fields
   RepulsiveFieldInfo safety_fields[3];
 
@@ -100,6 +103,8 @@ class CartesianImpedanceExampleController : public controller_interface::MultiIn
   Eigen::Matrix<double, 7, 1> upper_joint_limits = (Eigen::Matrix<double, 7, 1>() << 2.897246, 1.762782, 2.897246, -0.069813, 2.897246, 3.752457, 2.897246).finished();
 
   // Force functions
+  Eigen::VectorXd tanhCartesianSpring(Eigen::Matrix<double, 6, 6> stiffness, Eigen::Matrix<double, 6, 1> error, double max_force);
+
   Eigen::VectorXd jointLimitForceFunction(
     Eigen::Matrix<double, 7, 1> q,
     Eigen::Matrix<double, 7, 1> lower_limits,

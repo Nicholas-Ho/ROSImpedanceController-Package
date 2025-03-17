@@ -190,7 +190,8 @@ void CartesianImpedanceExampleController::update(const ros::Time& /*time*/,
 
   // Cartesian PD control with damping ratio = 1
   tau_task << jacobian.transpose() *
-                  (-cartesian_stiffness_ * error - cartesian_damping_ * (jacobian * dq)) +
+                  (-tanhCartesianSpring(cartesian_stiffness_, error, max_cartesian_spring_force) -
+                    cartesian_damping_ * (jacobian * dq)) +
               jointLimitForceFunction(q, lower_joint_limits, upper_joint_limits, 10, 0.4) +  // Joint limit protections
               jacobian.transpose() * safety_fields[0].calculateCartesianForces(position) +  // Safety repulsive fields
               jacobian.transpose() * safety_fields[1].calculateCartesianForces(position) +
@@ -266,6 +267,21 @@ Eigen::Matrix<double, 7, 1> CartesianImpedanceExampleController::saturateTorqueR
   return tau_d_saturated;
 }
 
+Eigen::VectorXd CartesianImpedanceExampleController::tanhCartesianSpring(Eigen::Matrix<double, 6, 6> stiffness, Eigen::Matrix<double, 6, 1> error, double max_force) {
+  // Expecting stiffness to be a diagonal matrix with diagonal { cartesian_stiffness (3 times), rotational_stiffness (3 times)}
+  double cartesian_stiffness = stiffness(0, 0);
+  double rotational_stiffness = stiffness(5, 5);
+  double k = cartesian_stiffness / max_force;
+  Eigen::VectorXd force(6);
+  force << max_force * std::tanh(k * error[0]),
+           max_force * std::tanh(k * error[1]),
+           max_force * std::tanh(k * error[2]),
+           rotational_stiffness * error[3],
+           rotational_stiffness * error[4],
+           rotational_stiffness * error[5];
+  return force;
+}
+
 Eigen::VectorXd CartesianImpedanceExampleController::jointLimitForceFunction(
     Eigen::Matrix<double, 7, 1> q,
     Eigen::Matrix<double, 7, 1> lower_limits,
@@ -302,10 +318,10 @@ void RepulsiveFieldInfo::updateInternals(double filter_param) {
 }
 
 Eigen::VectorXd RepulsiveFieldInfo::calculateCartesianForces(Eigen::Vector3d position) {
-  // Zero beyond active radius, linear with negative gradient otherwise
-  static auto force_func = [] (double dist, double gradient, double radius) {
+  // Zero beyond active radius, inversely proportional to squared distance otherwise
+  static auto force_func = [] (double dist, double k, double radius) {
     if (dist < 0) dist = -dist;  // Ensure absolute
-    if (dist < radius) return (radius - dist) * gradient;
+    if (dist < radius) return k / std::pow(dist, 2);
     return 0.0;
   };
   
@@ -367,7 +383,7 @@ void CartesianImpedanceExampleController::safetyFieldsCallback(
     msg->left_hand.active_radius
   );
 
-  safety_fields[1].setParameters(
+  safety_fields[2].setParameters(
     msg->right_hand.centre.x,
     msg->right_hand.centre.y,
     msg->right_hand.centre.z,
