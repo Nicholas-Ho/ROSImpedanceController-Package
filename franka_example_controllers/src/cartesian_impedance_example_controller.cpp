@@ -272,10 +272,13 @@ Eigen::VectorXd CartesianImpedanceExampleController::tanhCartesianSpring(Eigen::
   double cartesian_stiffness = stiffness(0, 0);
   double rotational_stiffness = stiffness(5, 5);
   double k = cartesian_stiffness / max_force;
+
+  Eigen::Vector3d cartesian_error;
+  cartesian_error << error[0], error[1], error[2]; 
+  Eigen::Vector3d cartesian_force = cartesian_error.normalized() * max_force * std::tanh(k * cartesian_error.norm());
+
   Eigen::VectorXd force(6);
-  force << max_force * std::tanh(k * error[0]),
-           max_force * std::tanh(k * error[1]),
-           max_force * std::tanh(k * error[2]),
+  force << cartesian_force,
            rotational_stiffness * error[3],
            rotational_stiffness * error[4],
            rotational_stiffness * error[5];
@@ -312,6 +315,7 @@ void RepulsiveFieldInfo::setParameters(double x, double y, double z, double s, d
 }
 
 void RepulsiveFieldInfo::updateInternals(double filter_param) {
+  std::lock_guard<std::mutex> safety_field_mutex_lock(mutex);
   centre = filter_param * centre_target + (1.0 - filter_param) * centre;
   strength = filter_param * strength_target + (1.0 - filter_param) * strength;
   active_radius = filter_param * active_radius_target + (1.0 - filter_param) * active_radius;
@@ -320,7 +324,7 @@ void RepulsiveFieldInfo::updateInternals(double filter_param) {
 Eigen::VectorXd RepulsiveFieldInfo::calculateCartesianForces(Eigen::Vector3d position) {
   // Zero beyond active radius, inversely proportional to squared distance otherwise
   static auto force_func = [] (double dist, double k, double radius) {
-    if (dist < 0) dist = -dist;  // Ensure absolute
+    dist = std::abs(dist);  // Ensure absolute
     if (dist < radius) return k / std::pow(dist, 2);
     return 0.0;
   };
