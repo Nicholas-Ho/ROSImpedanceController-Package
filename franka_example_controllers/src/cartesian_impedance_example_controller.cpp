@@ -322,10 +322,10 @@ void RepulsiveFieldInfo::updateInternals(double filter_param) {
 }
 
 Eigen::VectorXd RepulsiveFieldInfo::calculateCartesianForces(Eigen::Vector3d position) {
-  // Zero beyond active radius, inversely proportional to squared distance otherwise
+  // Zero beyond active radius, inversely proportional to cubed distance otherwise
   static auto force_func = [] (double dist, double k, double radius) {
     dist = std::abs(dist);  // Ensure absolute
-    if (dist < radius) return k / std::pow(dist, 2);
+    if (dist < radius) return k / std::pow(dist, 3);
     return 0.0;
   };
   
