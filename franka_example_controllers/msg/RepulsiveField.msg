@@ -1,0 +1,3 @@
+geometry_msgs/Point centre
+float64 strength
+float64 active_radius

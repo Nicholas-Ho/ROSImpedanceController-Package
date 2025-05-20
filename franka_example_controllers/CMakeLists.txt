@@ -37,9 +37,15 @@ list_insert_in_workspace_order(catkin_INCLUDE_DIRS ${Franka_INCLUDE_DIRS} ${catk
 add_message_files(FILES
   JointTorqueComparison.msg
   JointPositions.msg
+  TargetPose.msg
+  RepulsiveField.msg
+  SafetyRepulsiveFields.msg
 )
 
-generate_messages()
+generate_messages(
+  DEPENDENCIES
+  geometry_msgs
+)
 
 generate_dynamic_reconfigure_options(
   cfg/compliance_param.cfg

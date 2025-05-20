@@ -20,17 +20,16 @@ bool CartesianImpedanceExampleController::init(hardware_interface::RobotHW* robo
   std::vector<double> cartesian_stiffness_vector;
   std::vector<double> cartesian_damping_vector;
 
-  //-------------------modified------------------------------//
   sub_equilibrium_pose_ = node_handle.subscribe(
-      "equilibrium_pose", 20, &CartesianImpedanceExampleController::equilibriumPoseCallback, this,
+      "/target_data", 20, &CartesianImpedanceExampleController::equilibriumPoseCallback, this,
       ros::TransportHints().reliable().tcpNoDelay());
 
-  // sub_equilibrium_pose_ = node_handle.subscribe(
-  //     "equilibrium_pose_new", 20, &CartesianImpedanceExampleController::equilibriumPoseCallback, this,
-  //     ros::TransportHints().reliable().tcpNoDelay());
+  sub_safety_fields = node_handle.subscribe(
+      "/safety_fields", 20, &CartesianImpedanceExampleController::safetyFieldsCallback, this,
+      ros::TransportHints().reliable().tcpNoDelay());
   
   // add a publisher 
-  pub_current_pose_ = node_handle.advertise<geometry_msgs::PoseStamped>("robot_current_pose",50);
+  pub_current_pose_ = node_handle.advertise<geometry_msgs::PoseStamped>("/robot_current_pose",50);
   pub_joint_positions = node_handle.advertise<franka_example_controllers::JointPositions>("joint_positions",100);
   //-------------------modified------------------------------//
 
@@ -96,15 +95,15 @@ bool CartesianImpedanceExampleController::init(hardware_interface::RobotHW* robo
     }
   }
 
-  dynamic_reconfigure_compliance_param_node_ =
-      ros::NodeHandle(node_handle.getNamespace() + "/dynamic_reconfigure_compliance_param_node");
+  // dynamic_reconfigure_compliance_param_node_ =
+  //     ros::NodeHandle(node_handle.getNamespace() + "/dynamic_reconfigure_compliance_param_node");
 
-  dynamic_server_compliance_param_ = std::make_unique<
-      dynamic_reconfigure::Server<franka_example_controllers::compliance_paramConfig>>(
+  // dynamic_server_compliance_param_ = std::make_unique<
+  //     dynamic_reconfigure::Server<franka_example_controllers::compliance_paramConfig>>(
 
-      dynamic_reconfigure_compliance_param_node_);
-  dynamic_server_compliance_param_->setCallback(
-      boost::bind(&CartesianImpedanceExampleController::complianceParamCallback, this, _1, _2));
+  //     dynamic_reconfigure_compliance_param_node_);
+  // dynamic_server_compliance_param_->setCallback(
+  //     boost::bind(&CartesianImpedanceExampleController::complianceParamCallback, this, _1, _2));
 
   position_d_.setZero();
   orientation_d_.coeffs() << 0.0, 0.0, 0.0, 1.0;
@@ -113,6 +112,14 @@ bool CartesianImpedanceExampleController::init(hardware_interface::RobotHW* robo
 
   cartesian_stiffness_.setZero();
   cartesian_damping_.setZero();
+
+  // Safety repulsive fields
+  safety_fields[0].setParameters(0, 0, 0, 0, 0);
+  safety_fields[1].setParameters(0, 0, 0, 0, 0);
+  safety_fields[2].setParameters(0, 0, 0, 0, 0);
+  safety_fields[0].updateInternals(1);
+  safety_fields[1].updateInternals(1);
+  safety_fields[2].updateInternals(1);
 
   return true;
 }
@@ -183,7 +190,13 @@ void CartesianImpedanceExampleController::update(const ros::Time& /*time*/,
 
   // Cartesian PD control with damping ratio = 1
   tau_task << jacobian.transpose() *
-                  (-cartesian_stiffness_ * error - cartesian_damping_ * (jacobian * dq));
+                  (-tanhCartesianSpring(cartesian_stiffness_, error, max_cartesian_spring_force) -
+                    cartesian_damping_ * (jacobian * dq)) +
+              jointLimitForceFunction(q, lower_joint_limits, upper_joint_limits, 10, 0.4) +  // Joint limit protections
+              jacobian.transpose() * safety_fields[0].calculateCartesianForces(position) +  // Safety repulsive fields
+              jacobian.transpose() * safety_fields[1].calculateCartesianForces(position) +
+              jacobian.transpose() * safety_fields[2].calculateCartesianForces(position);
+
   // nullspace PD control with damping ratio = 1
   tau_nullspace << (Eigen::MatrixXd::Identity(7, 7) -
                     jacobian.transpose() * jacobian_transpose_pinv) *
@@ -199,17 +212,23 @@ void CartesianImpedanceExampleController::update(const ros::Time& /*time*/,
 
   // update parameters changed online either through dynamic reconfigure or through the interactive
   // target by filtering
-  cartesian_stiffness_ =
-      filter_params_ * cartesian_stiffness_target_ + (1.0 - filter_params_) * cartesian_stiffness_;
-  cartesian_damping_ =
-      filter_params_ * cartesian_damping_target_ + (1.0 - filter_params_) * cartesian_damping_;
-  nullspace_stiffness_ =
-      filter_params_ * nullspace_stiffness_target_ + (1.0 - filter_params_) * nullspace_stiffness_;
-  std::lock_guard<std::mutex> position_d_target_mutex_lock(
-      position_and_orientation_d_target_mutex_);
-  position_d_ = filter_params_ * position_d_target_ + (1.0 - filter_params_) * position_d_;
-  orientation_d_ = orientation_d_.slerp(filter_params_, orientation_d_target_);
+  {
+    std::lock_guard<std::mutex> position_d_target_mutex_lock(
+        position_and_orientation_d_target_mutex_);
+    cartesian_stiffness_ =
+        filter_params_ * cartesian_stiffness_target_ + (1.0 - filter_params_) * cartesian_stiffness_;
+    cartesian_damping_ =
+        filter_params_ * cartesian_damping_target_ + (1.0 - filter_params_) * cartesian_damping_;
+    nullspace_stiffness_ =
+        filter_params_ * nullspace_stiffness_target_ + (1.0 - filter_params_) * nullspace_stiffness_;
+    position_d_ = filter_params_ * position_d_target_ + (1.0 - filter_params_) * position_d_;
+    orientation_d_ = orientation_d_.slerp(filter_params_, orientation_d_target_);
+  }
 
+  // Do the same for the safety fields
+  safety_fields[0].updateInternals(filter_params_);
+  safety_fields[1].updateInternals(filter_params_);
+  safety_fields[2].updateInternals(filter_params_);
 
   //----------------------added---------------------------------//
   // publish robot pose
@@ -248,34 +267,133 @@ Eigen::Matrix<double, 7, 1> CartesianImpedanceExampleController::saturateTorqueR
   return tau_d_saturated;
 }
 
-void CartesianImpedanceExampleController::complianceParamCallback(
-    franka_example_controllers::compliance_paramConfig& config,
-    uint32_t /*level*/) {
-  cartesian_stiffness_target_.setIdentity();
-  cartesian_stiffness_target_.topLeftCorner(3, 3)
-      << config.translational_stiffness * Eigen::Matrix3d::Identity();
-  cartesian_stiffness_target_.bottomRightCorner(3, 3)
-      << config.rotational_stiffness * Eigen::Matrix3d::Identity();
-  cartesian_damping_target_.setIdentity();
-  // Damping ratio = 1
-  cartesian_damping_target_.topLeftCorner(3, 3)
-      << 2.0 * sqrt(config.translational_stiffness) * Eigen::Matrix3d::Identity();
-  cartesian_damping_target_.bottomRightCorner(3, 3)
-      << 2.0 * sqrt(config.rotational_stiffness) * Eigen::Matrix3d::Identity();
-  nullspace_stiffness_target_ = config.nullspace_stiffness;
+Eigen::VectorXd CartesianImpedanceExampleController::tanhCartesianSpring(Eigen::Matrix<double, 6, 6> stiffness, Eigen::Matrix<double, 6, 1> error, double max_force) {
+  // Expecting stiffness to be a diagonal matrix with diagonal { cartesian_stiffness (3 times), rotational_stiffness (3 times)}
+  double cartesian_stiffness = stiffness(0, 0);
+  double rotational_stiffness = stiffness(5, 5);
+  double k = cartesian_stiffness / max_force;
+
+  Eigen::Vector3d cartesian_error;
+  cartesian_error << error[0], error[1], error[2]; 
+  Eigen::Vector3d cartesian_force = cartesian_error.normalized() * max_force * std::tanh(k * cartesian_error.norm());
+
+  Eigen::VectorXd force(6);
+  force << cartesian_force,
+           rotational_stiffness * error[3],
+           rotational_stiffness * error[4],
+           rotational_stiffness * error[5];
+  return force;
+}
+
+Eigen::VectorXd CartesianImpedanceExampleController::jointLimitForceFunction(
+    Eigen::Matrix<double, 7, 1> q,
+    Eigen::Matrix<double, 7, 1> lower_limits,
+    Eigen::Matrix<double, 7, 1> upper_limits,
+    double k,
+    double buffer) {
+
+  // Zero between offset, linear with gradient otherwise
+  static auto force_func = [] (double x, double gradient, double lower_offset, double upper_offset) {
+    if (x < lower_offset) return gradient * (x - lower_offset);
+    if (x > upper_offset) return gradient * (x - upper_offset);
+    return 0.0;
+  };
+  
+  Eigen::VectorXd force(7);
+  for (int i=0; i<7; i++) {
+    force[i] = force_func(q[i], -k, lower_limits[i]+buffer, upper_limits[i]-buffer);
+  }
+
+  return force;
+}
+
+void RepulsiveFieldInfo::setParameters(double x, double y, double z, double s, double r) {
+  std::lock_guard<std::mutex> safety_field_mutex_lock(mutex);
+  centre_target << x, y, z;
+  strength_target = s;
+  active_radius_target = r;
+}
+
+void RepulsiveFieldInfo::updateInternals(double filter_param) {
+  std::lock_guard<std::mutex> safety_field_mutex_lock(mutex);
+  centre = filter_param * centre_target + (1.0 - filter_param) * centre;
+  strength = filter_param * strength_target + (1.0 - filter_param) * strength;
+  active_radius = filter_param * active_radius_target + (1.0 - filter_param) * active_radius;
+}
+
+Eigen::VectorXd RepulsiveFieldInfo::calculateCartesianForces(Eigen::Vector3d position) {
+  // Zero beyond active radius, inversely proportional to cubed distance otherwise
+  static auto force_func = [] (double dist, double k, double radius) {
+    dist = std::abs(dist);  // Ensure absolute
+    if (dist < radius) return k / std::pow(dist, 3);
+    return 0.0;
+  };
+  
+  Eigen::Vector3d diff = position - centre;
+  Eigen::Vector3d cartesian_force = diff.normalized() * force_func(diff.norm(), strength, active_radius);
+
+  Eigen::VectorXd force_vec(6);
+  // { cartesian_forces(3), rotation_forces(3) }
+  force_vec << cartesian_force, 0, 0, 0;
+
+  return force_vec;
 }
 
 void CartesianImpedanceExampleController::equilibriumPoseCallback(
-    const geometry_msgs::PoseStampedConstPtr& msg) {
-  std::lock_guard<std::mutex> position_d_target_mutex_lock(
-      position_and_orientation_d_target_mutex_);
-  position_d_target_ << msg->pose.position.x, msg->pose.position.y, msg->pose.position.z;
-  Eigen::Quaterniond last_orientation_d_target(orientation_d_target_);
-  orientation_d_target_.coeffs() << msg->pose.orientation.x, msg->pose.orientation.y,
-      msg->pose.orientation.z, msg->pose.orientation.w;
-  if (last_orientation_d_target.coeffs().dot(orientation_d_target_.coeffs()) < 0.0) {
-    orientation_d_target_.coeffs() << -orientation_d_target_.coeffs();
+    const franka_example_controllers::TargetPose::ConstPtr& msg) {
+  // Change target
+  {
+    std::lock_guard<std::mutex> position_d_target_mutex_lock(
+        position_and_orientation_d_target_mutex_);
+    position_d_target_ << msg->pose.position.x, msg->pose.position.y, msg->pose.position.z;
+    Eigen::Quaterniond last_orientation_d_target(orientation_d_target_);
+    orientation_d_target_.coeffs() << msg->pose.orientation.x, msg->pose.orientation.y,
+        msg->pose.orientation.z, msg->pose.orientation.w;
+    if (last_orientation_d_target.coeffs().dot(orientation_d_target_.coeffs()) < 0.0) {
+      orientation_d_target_.coeffs() << -orientation_d_target_.coeffs();
+    }
   }
+
+  // Change parameters
+  cartesian_stiffness_target_.setIdentity();
+  cartesian_stiffness_target_.topLeftCorner(3, 3)
+      << msg->cartesian_stiffness * Eigen::Matrix3d::Identity();
+  cartesian_stiffness_target_.bottomRightCorner(3, 3)
+      << msg->rotational_stiffness * Eigen::Matrix3d::Identity();
+  cartesian_damping_target_.setIdentity();
+  // Damping ratio = 1
+  cartesian_damping_target_.topLeftCorner(3, 3)
+      << 2.0 * sqrt(msg->cartesian_stiffness) * Eigen::Matrix3d::Identity();
+  cartesian_damping_target_.bottomRightCorner(3, 3)
+      << 2.0 * sqrt(msg->rotational_stiffness) * Eigen::Matrix3d::Identity();
+  nullspace_stiffness_target_ = 0.5;
+}
+
+void CartesianImpedanceExampleController::safetyFieldsCallback(
+    const franka_example_controllers::SafetyRepulsiveFields::ConstPtr& msg) {
+  safety_fields[0].setParameters(
+    msg->body.centre.x,
+    msg->body.centre.y,
+    msg->body.centre.z,
+    msg->body.strength,
+    msg->body.active_radius
+  );
+
+  safety_fields[1].setParameters(
+    msg->left_hand.centre.x,
+    msg->left_hand.centre.y,
+    msg->left_hand.centre.z,
+    msg->left_hand.strength,
+    msg->left_hand.active_radius
+  );
+
+  safety_fields[2].setParameters(
+    msg->right_hand.centre.x,
+    msg->right_hand.centre.y,
+    msg->right_hand.centre.z,
+    msg->right_hand.strength,
+    msg->right_hand.active_radius
+  );
 }
 
 }  // namespace franka_example_controllers
