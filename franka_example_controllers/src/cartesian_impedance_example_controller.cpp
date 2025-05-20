@@ -370,13 +370,12 @@ void CartesianImpedanceExampleController::equilibriumPoseCallback(
   cartesian_stiffness_target_.bottomRightCorner(3, 3)
       << msg->rotational_stiffness * Eigen::Matrix3d::Identity();
   cartesian_damping_target_.setIdentity();
-  // Damping ratio = 1
+  // Damping
   cartesian_damping_target_.topLeftCorner(3, 3)
-      << 2.0 * sqrt(msg->cartesian_stiffness) * Eigen::Matrix3d::Identity();
+      << damping_ratio * 2.0 * sqrt(msg->cartesian_stiffness) * Eigen::Matrix3d::Identity();
   cartesian_damping_target_.bottomRightCorner(3, 3)
-      << 2.0 * sqrt(msg->rotational_stiffness) * Eigen::Matrix3d::Identity();
-  // Integral ratio = 0.01
-  const float integral_ratio = 1;
+      << damping_ratio * 2.0 * sqrt(msg->rotational_stiffness) * Eigen::Matrix3d::Identity();
+  // Integral
   cartesian_integral_target_.topLeftCorner(3, 3)
       << integral_ratio * 2.0 * sqrt(msg->cartesian_stiffness) * Eigen::Matrix3d::Identity();
   cartesian_integral_target_.bottomRightCorner(3, 3)
