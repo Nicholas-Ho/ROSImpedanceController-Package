@@ -110,8 +110,11 @@ bool CartesianImpedanceExampleController::init(hardware_interface::RobotHW* robo
   position_d_target_.setZero();
   orientation_d_target_.coeffs() << 0.0, 0.0, 0.0, 1.0;
 
+  error_integral.setZero();
+
   cartesian_stiffness_.setZero();
   cartesian_damping_.setZero();
+  cartesian_integral_.setZero();
 
   // Safety repulsive fields
   safety_fields[0].setParameters(0, 0, 0, 0, 0);
@@ -146,7 +149,7 @@ void CartesianImpedanceExampleController::starting(const ros::Time& /*time*/) {
 }
 
 void CartesianImpedanceExampleController::update(const ros::Time& /*time*/,
-                                                 const ros::Duration& /*period*/) {
+                                                 const ros::Duration& period) {
   // get state variables
   franka::RobotState robot_state = state_handle_->getRobotState();
   std::array<double, 7> coriolis_array = model_handle_->getCoriolis();
@@ -179,6 +182,9 @@ void CartesianImpedanceExampleController::update(const ros::Time& /*time*/,
   // Transform to base frame
   error.tail(3) << -transform.rotation() * error.tail(3);
 
+  // compute error integral
+  if (track_error_integral) error_integral += error * period.toSec();
+
   // compute control
   // allocate variables
   Eigen::VectorXd tau_task(7), tau_nullspace(7), tau_d(7);
@@ -191,7 +197,8 @@ void CartesianImpedanceExampleController::update(const ros::Time& /*time*/,
   // Cartesian PD control with damping ratio = 1
   tau_task << jacobian.transpose() *
                   (-tanhCartesianSpring(cartesian_stiffness_, error, max_cartesian_spring_force) -
-                    cartesian_damping_ * (jacobian * dq)) +
+                    cartesian_damping_ * (jacobian * dq) -
+                    cartesian_integral_ * error_integral) +
               jointLimitForceFunction(q, lower_joint_limits, upper_joint_limits, 10, 0.4) +  // Joint limit protections
               jacobian.transpose() * safety_fields[0].calculateCartesianForces(position) +  // Safety repulsive fields
               jacobian.transpose() * safety_fields[1].calculateCartesianForces(position) +
@@ -219,6 +226,8 @@ void CartesianImpedanceExampleController::update(const ros::Time& /*time*/,
         filter_params_ * cartesian_stiffness_target_ + (1.0 - filter_params_) * cartesian_stiffness_;
     cartesian_damping_ =
         filter_params_ * cartesian_damping_target_ + (1.0 - filter_params_) * cartesian_damping_;
+    cartesian_integral_ =
+        filter_params_ * cartesian_integral_target_ + (1.0 - filter_params_) * cartesian_integral_;
     nullspace_stiffness_ =
         filter_params_ * nullspace_stiffness_target_ + (1.0 - filter_params_) * nullspace_stiffness_;
     position_d_ = filter_params_ * position_d_target_ + (1.0 - filter_params_) * position_d_;
@@ -366,7 +375,22 @@ void CartesianImpedanceExampleController::equilibriumPoseCallback(
       << 2.0 * sqrt(msg->cartesian_stiffness) * Eigen::Matrix3d::Identity();
   cartesian_damping_target_.bottomRightCorner(3, 3)
       << 2.0 * sqrt(msg->rotational_stiffness) * Eigen::Matrix3d::Identity();
+  // Integral ratio = 0.01
+  const float integral_ratio = 1;
+  cartesian_integral_target_.topLeftCorner(3, 3)
+      << integral_ratio * 2.0 * sqrt(msg->cartesian_stiffness) * Eigen::Matrix3d::Identity();
+  cartesian_integral_target_.bottomRightCorner(3, 3)
+      << integral_ratio * 2.0 * sqrt(msg->rotational_stiffness) * Eigen::Matrix3d::Identity();
   nullspace_stiffness_target_ = 0.5;
+
+  // Reset error integral if zero
+  const float thresh = 0.001;
+  if (msg->cartesian_stiffness <= thresh) {
+    error_integral.setZero();
+    track_error_integral = false;
+  } else {
+    track_error_integral = true;
+  }
 }
 
 void CartesianImpedanceExampleController::safetyFieldsCallback(

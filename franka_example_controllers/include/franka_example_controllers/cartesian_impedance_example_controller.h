@@ -70,12 +70,17 @@ class CartesianImpedanceExampleController : public controller_interface::MultiIn
   Eigen::Matrix<double, 6, 6> cartesian_stiffness_target_;
   Eigen::Matrix<double, 6, 6> cartesian_damping_;
   Eigen::Matrix<double, 6, 6> cartesian_damping_target_;
+  Eigen::Matrix<double, 6, 6> cartesian_integral_;
+  Eigen::Matrix<double, 6, 6> cartesian_integral_target_;
   Eigen::Matrix<double, 7, 1> q_d_nullspace_;
   Eigen::Vector3d position_d_;
   Eigen::Quaterniond orientation_d_;
   std::mutex position_and_orientation_d_target_mutex_;
   Eigen::Vector3d position_d_target_;
   Eigen::Quaterniond orientation_d_target_;
+
+  Eigen::Matrix<double, 6, 1> error_integral;
+  bool track_error_integral = false;
 
   // Safety limits for Tanh cartesian spring
   const double max_cartesian_spring_force{10};
