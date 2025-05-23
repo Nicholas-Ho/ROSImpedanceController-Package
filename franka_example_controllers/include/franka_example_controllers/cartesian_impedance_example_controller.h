@@ -80,7 +80,9 @@ class CartesianImpedanceExampleController : public controller_interface::MultiIn
   Eigen::Quaterniond orientation_d_target_;
 
   const float damping_ratio{1};
-  const float integral_ratio{3};
+  const float integral_ratio{5};
+  const float integral_cartesian_saturation{0.5};
+  const float integral_rotation_saturation{3};
   Eigen::Matrix<double, 6, 1> error_integral;
   bool track_error_integral = false;
 

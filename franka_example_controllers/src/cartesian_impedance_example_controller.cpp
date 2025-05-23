@@ -183,7 +183,21 @@ void CartesianImpedanceExampleController::update(const ros::Time& /*time*/,
   error.tail(3) << -transform.rotation() * error.tail(3);
 
   // compute error integral
-  if (track_error_integral) error_integral += error * period.toSec();
+  if (track_error_integral) {
+    error_integral += error * period.toSec();
+
+    // cartesian saturation
+    for (int i=0; i<3; i++) {
+      if (error_integral[i] > integral_cartesian_saturation) error_integral[i] = integral_cartesian_saturation;
+      if (error_integral[i] < -integral_cartesian_saturation) error_integral[i] = -integral_cartesian_saturation;
+    }
+
+    // rotational saturation
+    for (int i=3; i<6; i++) {
+      if (error_integral[i] > integral_rotation_saturation) error_integral[i] = integral_rotation_saturation;
+      if (error_integral[i] < -integral_rotation_saturation) error_integral[i] = -integral_rotation_saturation;
+    }
+  }
 
   // compute control
   // allocate variables
