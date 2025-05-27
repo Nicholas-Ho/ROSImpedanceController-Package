@@ -213,7 +213,7 @@ void CartesianImpedanceExampleController::update(const ros::Time& /*time*/,
                   (-tanhCartesianSpring(cartesian_stiffness_, error, max_cartesian_spring_force) -
                     cartesian_damping_ * (jacobian * dq) -
                     cartesian_integral_ * error_integral) +
-              jointLimitForceFunction(q, lower_joint_limits, upper_joint_limits, 10, 0.4) +  // Joint limit protections
+              jointLimitForceFunction(q, lower_joint_limits, upper_joint_limits, 5, 0.2) +  // Joint limit protections
               jacobian.transpose() * safety_fields[0].calculateCartesianForces(position) +  // Safety repulsive fields
               jacobian.transpose() * safety_fields[1].calculateCartesianForces(position) +
               jacobian.transpose() * safety_fields[2].calculateCartesianForces(position);
@@ -364,6 +364,9 @@ Eigen::VectorXd RepulsiveFieldInfo::calculateCartesianForces(Eigen::Vector3d pos
 
 void CartesianImpedanceExampleController::equilibriumPoseCallback(
     const franka_example_controllers::TargetPose::ConstPtr& msg) {
+  // Get old target
+  Eigen::Vector3d prev_position_d_target_ = position_d_target_;
+
   // Change target
   {
     std::lock_guard<std::mutex> position_d_target_mutex_lock(
@@ -397,12 +400,13 @@ void CartesianImpedanceExampleController::equilibriumPoseCallback(
   nullspace_stiffness_target_ = 0.5;
 
   // Reset error integral if zero
-  const float thresh = 0.001;
-  if (msg->cartesian_stiffness <= thresh) {
+  const float threshStiffness = 0.001;
+  const float threshTarget = 0.001;
+  if (msg->cartesian_stiffness > threshStiffness && (prev_position_d_target_ - position_d_target_).norm() < threshTarget) {
+    track_error_integral = true;
+  } else {
     error_integral.setZero();
     track_error_integral = false;
-  } else {
-    track_error_integral = true;
   }
 }
 
